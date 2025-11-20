@@ -625,7 +625,7 @@ function PastureMapApp() {
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '12px',
+          gap: '6px',
         }}>
           {[
             { color: '#9e9e9e', name: 'Not Grazed' },
