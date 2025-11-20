@@ -1,11 +1,12 @@
 // JavaScript
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   initializeBlock,
   useBase,
   useRecords,
   useCustomProperties,
 } from '@airtable/blocks/interface/ui';
+import { FieldType } from '@airtable/blocks/interface/models';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './style.css';
@@ -133,15 +134,17 @@ function extendBoundsFromGeometry(bounds, geom) {
 //   Custom Properties    //
 // ---------------------- //
 
-function getCustomProperties(base) {
+const getCustomProperties = (base) => {
+  const pasturesTable = base.getTableByIdIfExists('tblH2WjR4nvt3tpYA') ||
+    base.tables.find((table) => table.name.toLowerCase().includes('pasture')) ||
+    base.tables[0];
+
   return [
     {
       key: 'pasturesTable',
       label: 'Pastures Table',
       type: 'table',
-      defaultValue:
-        base.getTableByIdIfExists('tblH2WjR4nvt3tpYA') ||
-        base.tables.find((table) => table.name.toLowerCase().includes('pasture')),
+      defaultValue: pasturesTable,
     },
     {
       key: 'mapboxAccessToken',
@@ -149,18 +152,117 @@ function getCustomProperties(base) {
       type: 'string',
       defaultValue: '',
     },
+    {
+      key: 'nameField',
+      label: 'Name Field',
+      type: 'field',
+      table: pasturesTable,
+      shouldFieldBeAllowed: (field) =>
+        field.config.type === FieldType.SINGLE_LINE_TEXT ||
+        field.config.type === FieldType.MULTILINE_TEXT,
+      defaultValue: pasturesTable?.getFieldIfExists('Name'),
+    },
+    {
+      key: 'geoJsonField',
+      label: 'GeoJSON Field',
+      type: 'field',
+      table: pasturesTable,
+      shouldFieldBeAllowed: (field) =>
+        field.config.type === FieldType.MULTILINE_TEXT ||
+        field.config.type === FieldType.SINGLE_LINE_TEXT,
+      defaultValue: pasturesTable?.getFieldIfExists('GeoJSON'),
+    },
+    {
+      key: 'totalAcresField',
+      label: 'Total Acres Field',
+      type: 'field',
+      table: pasturesTable,
+      shouldFieldBeAllowed: (field) =>
+        field.config.type === FieldType.NUMBER ||
+        field.config.type === FieldType.FORMULA,
+      defaultValue: pasturesTable?.getFieldIfExists('Total Acres'),
+    },
+    {
+      key: 'grazeableAcresField',
+      label: 'Est. Grazeable Acres Field',
+      type: 'field',
+      table: pasturesTable,
+      shouldFieldBeAllowed: (field) =>
+        field.config.type === FieldType.NUMBER ||
+        field.config.type === FieldType.PERCENT ||
+        field.config.type === FieldType.FORMULA,
+      defaultValue: pasturesTable?.getFieldIfExists('Est. Grazeable Acres'),
+    },
+    {
+      key: 'foragePerAcreField',
+      label: 'Est. Forage/Acre Field',
+      type: 'field',
+      table: pasturesTable,
+      shouldFieldBeAllowed: (field) =>
+        field.config.type === FieldType.NUMBER ||
+        field.config.type === FieldType.FORMULA,
+      defaultValue: pasturesTable?.getFieldIfExists('Est. Forage/Acre (lbs)'),
+    },
+    {
+      key: 'pastureColorField',
+      label: 'Pasture Color Field',
+      type: 'field',
+      table: pasturesTable,
+      shouldFieldBeAllowed: (field) =>
+        field.config.type === FieldType.SINGLE_LINE_TEXT ||
+        field.config.type === FieldType.FORMULA,
+      defaultValue: pasturesTable?.fields.find(f => f.name === 'pastureColor'),
+    },
+    {
+      key: 'alphaValueField',
+      label: 'Pasture Alpha Value Field',
+      type: 'field',
+      table: pasturesTable,
+      shouldFieldBeAllowed: (field) =>
+        field.config.type === FieldType.NUMBER ||
+        field.config.type === FieldType.FORMULA,
+      defaultValue: pasturesTable?.fields.find(f => f.name === 'pastureAlphaValue'),
+    },
+    {
+      key: 'boundaryWidthField',
+      label: 'Boundary Width Field',
+      type: 'field',
+      table: pasturesTable,
+      shouldFieldBeAllowed: (field) =>
+        field.config.type === FieldType.NUMBER ||
+        field.config.type === FieldType.FORMULA,
+      defaultValue: pasturesTable?.fields.find(f => f.name === 'boundaryWidth'),
+    },
+    {
+      key: 'isActiveField',
+      label: 'Is Active Field',
+      type: 'field',
+      table: pasturesTable,
+      shouldFieldBeAllowed: (field) =>
+        field.config.type === FieldType.CHECKBOX,
+      defaultValue: pasturesTable?.getFieldIfExists('Is Active'),
+    },
   ];
-}
+};
 
 // ---------------------- //
 //      Main Block        //
 // ---------------------- //
 
 function PastureMapApp() {
-  const base = useBase();
+  useBase();
   const { customPropertyValueByKey, errorState } = useCustomProperties(getCustomProperties);
   const pasturesTable = customPropertyValueByKey.pasturesTable;
   const mapboxToken = customPropertyValueByKey.mapboxAccessToken;
+  const nameField = customPropertyValueByKey.nameField;
+  const geoJsonField = customPropertyValueByKey.geoJsonField;
+  const totalAcresField = customPropertyValueByKey.totalAcresField;
+  const grazeableAcresField = customPropertyValueByKey.grazeableAcresField;
+  const foragePerAcreField = customPropertyValueByKey.foragePerAcreField;
+  const pastureColorField = customPropertyValueByKey.pastureColorField;
+  const alphaValueField = customPropertyValueByKey.alphaValueField;
+  const boundaryWidthField = customPropertyValueByKey.boundaryWidthField;
+  const isActiveField = customPropertyValueByKey.isActiveField;
 
   // Use the "Mapping" view if it exists
   const mappingView = pasturesTable?.getViewByNameIfExists?.('Mapping');
@@ -169,7 +271,6 @@ function PastureMapApp() {
   const mapRef = useRef(null);
   const popupRef = useRef(null);
   const [error, setError] = useState(null);
-  const isInitialLoadRef = useRef(true);
 
   // Initialize map
   useEffect(() => {
@@ -338,16 +439,6 @@ function PastureMapApp() {
     updateMapData();
 
     function updateMapData() {
-      const nameField = pasturesTable.getFieldIfExists('Name');
-      const geoJsonField = pasturesTable.getFieldIfExists('GeoJSON');
-      const totalAcresField = pasturesTable.getFieldIfExists('Total Acres');
-      const grazeableAcresField = pasturesTable.getFieldIfExists('Est. Grazeable Acres');
-      const foragePerAcreField = pasturesTable.getFieldIfExists('Est. Forage/Acre (lbs)');
-      const pastureColorField = pasturesTable.fields.find(f => f.name === 'pastureColor');
-      const alphaValueField = pasturesTable.fields.find(f => f.name === 'pastureAlphaValue');
-      const boundaryWidthField = pasturesTable.fields.find(f => f.name === 'boundaryWidth');
-      const isActiveField = pasturesTable.getFieldIfExists('Is Active');
-
       const features = [];
       const bounds = new mapboxgl.LngLatBounds();
 
@@ -438,7 +529,7 @@ function PastureMapApp() {
         });
       }
     }
-  }, [records, pasturesTable]);
+  }, [records, pasturesTable, nameField, geoJsonField, totalAcresField, grazeableAcresField, foragePerAcreField, pastureColorField, alphaValueField, boundaryWidthField, isActiveField]);
 
   // ---------------------- //
   //    Error States UI     //
@@ -461,7 +552,7 @@ function PastureMapApp() {
         <div className="bg-white rounded-lg p-8 shadow-lg max-w-md text-center">
           <h2 className="text-xl font-bold mb-4">Configure Mapbox Token</h2>
           <p>Please provide a Mapbox Access Token in the properties panel.</p>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 mt-4">
             You can get a free token from{' '}
             <a
               href="https://www.mapbox.com/"
@@ -472,6 +563,21 @@ function PastureMapApp() {
               mapbox.com
             </a>
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!pasturesTable || !geoJsonField) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-gray50 p-8">
+        <div className="bg-white rounded-lg p-8 shadow-lg max-w-md text-center">
+          <h2 className="text-xl font-bold mb-4">Configure Required Fields</h2>
+          <p>Please configure all required fields in the properties panel:</p>
+          <ul className="text-sm text-left mt-4 space-y-2">
+            {!pasturesTable && <li>• Pastures Table</li>}
+            {!geoJsonField && <li>• GeoJSON Field</li>}
+          </ul>
         </div>
       </div>
     );
